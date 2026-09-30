@@ -42,6 +42,7 @@ export function createAiRouter({ fetchImpl = globalThis.fetch, env = process.env
       return res.status(429).json({ message: "The assistant has reached its current request limit. Please try later or send your idea to the team." });
     }
     minute.count++; day.count++; active++;
+    let failureStage = "request";
     try {
       const model = env.GEMINI_MODEL || "gemini-2.5-flash";
       if (!/^[a-z0-9.-]+$/.test(model)) throw new Error("Invalid model configuration");
@@ -52,18 +53,24 @@ export function createAiRouter({ fetchImpl = globalThis.fetch, env = process.env
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: instructions }] },
           contents: [{ role: "user", parts: [{ text: input.data.idea }] }],
-          generationConfig: { responseMimeType: "application/json", responseSchema, temperature: 0.4, maxOutputTokens: 4096 },
+          generationConfig: { responseMimeType: "application/json", responseSchema, temperature: 0.4, maxOutputTokens: 4096, ...(model.startsWith("gemini-2.5-flash") ? { thinkingConfig: { thinkingBudget: 0 } } : {}) },
         }),
       });
       if (!response.ok) return res.status(response.status === 429 ? 429 : 503).json({ message: "The AI service is unavailable right now. Please try again later or send your idea to the team." });
+      failureStage = "provider_json";
       const data = await response.json();
       const candidate = data.candidates?.[0];
+      failureStage = candidate?.finishReason === "MAX_TOKENS" ? "token_limit" : "completion";
       if (candidate?.finishReason !== "STOP") throw new Error("Incomplete response");
       const text = candidate.content?.parts?.filter(part => !part.thought).map(part => part.text || "").join("");
-      const brief = briefSchema.parse(JSON.parse(text));
+      failureStage = "json_parse";
+      const parsed = JSON.parse(text);
+      failureStage = "schema_validation";
+      const brief = briefSchema.parse(parsed);
       return res.json({ brief });
     } catch {
-      // Never log prompts, provider responses or credentials.
+      // Log only a fixed stage label, never prompts, responses or credentials.
+      console.warn("AI brief failed at stage:", failureStage);
       return res.status(503).json({ message: "We couldn't create a complete brief. Please retry, or send your idea directly to the team." });
     } finally { active--; }
   });
