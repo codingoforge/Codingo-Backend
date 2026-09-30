@@ -8,6 +8,8 @@ import adminRoutes from "./modules/admin/admin.routes.js";
 import currencyRoutes from "./modules/currency/currency.routes.js";
 
 
+import aiRoutes from "./modules/ai/ai.routes.js";
+
 const app = express();
 
 const allowedOrigins = [
@@ -22,6 +24,8 @@ app.use(cors({
   },
   credentials: true,
 }));
+
+app.use("/api/ai", aiRoutes);
 
 app.use(express.json());
 
