@@ -56,7 +56,12 @@ export function createAiRouter({ fetchImpl = globalThis.fetch, env = process.env
           generationConfig: { responseMimeType: "application/json", responseSchema, temperature: 0.4, maxOutputTokens: 4096, ...(model.startsWith("gemini-2.5-flash") ? { thinkingConfig: { thinkingBudget: 0 } } : {}) },
         }),
       });
-      if (!response.ok) return res.status(response.status === 429 ? 429 : 503).json({ message: "The AI service is unavailable right now. Please try again later or send your idea to the team." });
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}));
+        const safeLabel = value => typeof value === "string" && /^[A-Z_]{1,80}$/.test(value) ? value : "UNKNOWN";
+        console.warn("AI provider rejected request:", response.status, safeLabel(errorBody.error?.status), (errorBody.error?.details || []).map(detail => safeLabel(detail.reason)).join(","));
+        return res.status(response.status === 429 ? 429 : 503).json({ message: "The AI service is unavailable right now. Please try again later or send your idea to the team." });
+      }
       failureStage = "provider_json";
       const data = await response.json();
       const candidate = data.candidates?.[0];
